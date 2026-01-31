@@ -1,0 +1,135 @@
+version: "1.0.0"
+templates:
+  - name: gradle
+    source: git.target.com/AbcDef/vela-templates/gradle/build/template.yml
+    type: github
+  - name: docker
+    source: git.target.com/AbcDef/vela-templates/docker/template.yml
+    type: github
+  - name: tap
+    source: git.target.com/AbcDef/vela-templates/tap/template.yml
+    type: github
+  - name: slack
+    source: git.target.com/AbcDef/vela-templates/slack/template.yml
+    type: github
+  - name: projektor
+    source: git.target.com/AbcDef/vela-templates/projektor/template.yml
+    type: github
+
+steps:
+  - name: gradle
+    template:
+     name: gradle
+     vars:
+       environment:
+         METRICS_URL: "http://influxdb:8086"
+         POSTGRES_HOST: postgres
+         KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+  - name: docker
+    template:
+     name: docker
+     vars:
+       docker_path: managed/abcdef/my-app
+
+  - name: docker_publish_stage
+    image: docker.target.com/vela-plugins/kaniko:v0.17.0-1
+    pull: always
+    ruleset:
+      event: push
+      branch: stage
+    parameters:
+      cache: true
+      registry: docker.target.com
+      repo: docker.target.com/managed/abcdef/my-app/my-app-stage
+      dockerfile: Dockerfile
+      tags:
+        - latest
+        - "b${BUILD_NUMBER}-${BUILD_COMMIT:0:8}"
+        - "${BUILD_COMMIT:0:8}"
+  - name: docker_publish_dev
+    image: docker.target.com/vela-plugins/kaniko:v0.17.0-1
+    pull: always
+    ruleset:
+      event: push
+      branch: dev
+    parameters:
+      cache: true
+      registry: docker.target.com
+      repo: docker.target.com/managed/abcdef/my-app/my-app-stage
+      dockerfile: Dockerfile
+      tags:
+        - latest
+        - "b${BUILD_NUMBER}-${BUILD_COMMIT:0:8}"
+        - "${BUILD_COMMIT:0:8}"
+  - name: tap
+    template:
+     name: tap
+     vars:
+      application_name: my-app
+
+  - name: slack
+    template:
+     name: slack
+
+  - name: projektor
+    template:
+     name: projektor
+
+services:
+  - name: influxdb
+    image: influxdb:2.0
+    ports:
+      - "8086:8086"
+
+  - name: postgres
+    image: library/postgres:13
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    pull: always
+    ports:
+      - "5432:5432"
+
+  - name: zookeeper
+    image: wurstmeister/zookeeper
+    ports:
+      - "2181:2181"
+
+  - name: kafka
+    image: wurstmeister/kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+      KAFKA_ADVERTISED_PORT: "9092"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_CLEANUP_POLICY: compact
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper
+
+secrets:
+  - name: cache_s3_access_key
+    key: vela/prod-secrets/cache_s3_access_key
+    type: shared
+  - name: cache_s3_server
+    key: vela/prod-secrets/cache_s3_server
+    type: shared
+  - name: cache_s3_secret_key
+    key: vela/prod-secrets/cache_s3_secret_key
+    type: shared
+  - name: secrets_password
+    key: my-app/secrets_password
+    engine: native
+    type: org
+  - name: tapitoken
+    key: my-app/tapitoken
+    engine: native
+    type: org
+  - name: slackwebhook
+    key: my-app/slackwebhook
+    engine: native
+    type: org
+
+
